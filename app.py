@@ -6,8 +6,10 @@ import seaborn as sns
 from matplotlib.ticker import PercentFormatter
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, mean_absolute_error, r2_score
+from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+import datetime
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN
@@ -18,13 +20,11 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📈 ANALISIS PERGERAKAN SAHAM DAN KINERJA TOP TECH COMPANIES DI CAPITAL MARKET")
+st.title("📈 ANALISIS PERGERAKAN SAHAM DAN KINERJA TOP TECH COMPANIES")
 
 st.markdown("""
 ### **Business Understanding**
-Permasalahan utama yang diangkat pada proyek ini adalah tingginya kompleksitas dan volatilitas pergerakan harga saham perusahaan-perusahaan raksasa di sektor teknologi (Top Tech Companies) di pasar modal. Sektor teknologi memiliki dinamika yang sangat reaktif terhadap sentimen pasar, yang tercermin dari fluktuasi harga harian (Open, High, Low, Close) dan likuiditas volume transaksi. Menganalisis metrik historis saham ini secara manual untuk mengidentifikasi pola tren jangka panjang dan mengukur tingkat risiko investasi sangatlah tidak efisien dan rentan terhadap bias.
-
-Oleh karena itu, diperlukan suatu pendekatan komputasi berbasis data untuk membantu investor dan pemangku kepentingan dalam memetakan perilaku pasar. Hal ini dapat diatasi dengan mengimplementasikan algoritma Machine Learning dan Time Series Forecasting.
+Permasalahan utama yang diangkat pada proyek ini adalah tingginya kompleksitas dan volatilitas pergerakan harga saham perusahaan teknologi di pasar modal. Menganalisis metrik historis saham ini secara manual sangatlah tidak efisien. Oleh karena itu, diperlukan pendekatan komputasi berbasis data menggunakan *Machine Learning* dan *Time-Series Forecasting* untuk memetakan perilaku pasar.
 """)
 
 # ==========================================
@@ -35,253 +35,253 @@ def load_data(file):
     df = pd.read_csv(file)
     df['Date'] = pd.to_datetime(df['Date'])
     df = df.sort_values(by=['Ticker', 'Date'])
-    
-    # Feature Engineering (Sesuai Colab)
     df['Daily_Return'] = df.groupby('Ticker')['Close'].pct_change()
     df['Volatility'] = df['High'] - df['Low']
-    
     return df
 
-st.sidebar.header("📂 Upload Dataset")
-st.sidebar.markdown("Unggah file `Dataset 10 Perusahaan Besar dibidang Teknologi.csv` milik kelompok Anda.")
+st.sidebar.header("📂 1. Upload Dataset")
+st.sidebar.markdown("Unggah `Dataset 10 Perusahaan Besar dibidang Teknologi.csv`")
 uploaded_file = st.sidebar.file_uploader("", type="csv")
 
 if uploaded_file is not None:
-    # Memuat data ke DataFrame utama
     df = load_data(uploaded_file)
     
-    st.markdown("""
-    ---
-    ### **Data Understanding & Kualitas Data**
-    Dataset yang digunakan dalam analisis ini memuat data riwayat pergerakan harga saham harian dari perusahaan-perusahaan besar, khususnya raksasa teknologi. Tidak ditemukan adanya nilai yang kosong (*0 missing values*) pada seluruh kolom metrik, dan tidak ada baris data yang terekam ganda (*no duplicated rows*). Oleh karena itu, data ini sudah bersih secara struktural.
-    """)
-    
+    st.sidebar.markdown("---")
+    st.sidebar.header("📅 2. Filter Rentang Waktu (EDA)")
+    min_date = df['Date'].min().date()
+    max_date = df['Date'].max().date()
+    start_date, end_date = st.sidebar.slider("Pilih Rentang Tanggal:", min_value=min_date, max_value=max_date, value=(min_date, max_date))
+    df_eda = df[(df['Date'].dt.date >= start_date) & (df['Date'].dt.date <= end_date)].copy()
+
     with st.expander("👁️ Lihat 5 Baris Pertama Dataset Mentah"):
         st.dataframe(df.head())
-        
     st.markdown("---")
     
     # ==========================================
-    # 3. BAGIAN EDA (Exploratory Data Analysis)
+    # 3. BAGIAN EDA
     # ==========================================
     st.header("📊 Exploratory Data Analysis (EDA)")
-    
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "Distribusi & Outlier", 
-        "Tren & Moving Average", 
-        "Korelasi Heatmap", 
-        "Distribusi Daily Return",
-        "Volume vs Volatilitas",
-        "Cumulative Return",
-        "Analisis Likuiditas"
+        "Distribusi & Outlier", "Tren & Moving Average", "Korelasi Heatmap", 
+        "Distribusi Volatilitas", "Volume vs Volatilitas", "Cumulative Return", "Likuiditas"
     ])
     
     with tab1:
-        st.subheader("Distribusi Volume Perdagangan (Analisis Univariat)")
-        st.markdown("Grafik histogram ini memperlihatkan seberapa sering rentang volume tertentu terjadi. Kurva KDE membantu melihat pola distribusi data.")
+        st.subheader("Distribusi Volume Perdagangan")
         fig, ax = plt.subplots(figsize=(10, 5))
-        sns.histplot(df['Volume'], bins=50, kde=True, color='teal', ax=ax)
-        ax.set_title('Distribusi Volume Perdagangan Saham Teknologi', fontweight='bold')
+        sns.histplot(df_eda['Volume'], bins=50, kde=True, color='teal', ax=ax)
         st.pyplot(fig)
-        
         st.markdown("---")
         st.subheader("Analisis Outlier (Volume Berdasarkan Ticker)")
-        st.markdown("""
-        * **NVDA Paling Dominan & Volatil:** NVDA memiliki fluktuasi volume dan lonjakan transaksi paling ekstrem. Ini menunjukkan tingginya likuiditas dan spekulasi pasar.
-        * **Lonjakan Volume Cukup Sering:** Distribusi data tidak normal. Hari-hari di mana terjadi lonjakan volume transaksi saham yang tinggi cukup lumrah terjadi.
-        """)
         fig4, ax4 = plt.subplots(figsize=(12, 6))
-        sns.boxplot(data=df, x='Ticker', y='Volume', palette='Set2', ax=ax4)
-        ax4.set_title('Deteksi Outlier pada Volume Perdagangan Saham', fontweight='bold')
+        sns.boxplot(data=df_eda, x='Ticker', y='Volume', palette='Set2', ax=ax4)
         st.pyplot(fig4)
         
     with tab2:
-        st.subheader("Tren Harga Saham dari Waktu ke Waktu (Analisis Multivariat)")
-        st.markdown("Grafik Time-Series ini memetakan lintasan harga saham. Data historis pergerakan harga (Close price) yang bersih seperti ini adalah pondasi utama untuk prediksi.")
+        st.subheader(f"Tren Harga Saham ({start_date} hingga {end_date})")
         fig2, ax2 = plt.subplots(figsize=(12, 6))
-        sns.lineplot(data=df, x='Date', y='Close', hue='Ticker', linewidth=1.5, ax=ax2)
-        ax2.set_title('Tren Harga Penutupan Perusahaan Terpilih', fontweight='bold')
+        sns.lineplot(data=df_eda, x='Date', y='Close', hue='Ticker', linewidth=1.5, ax=ax2)
         st.pyplot(fig2)
-
         st.markdown("---")
-        st.subheader("Analisis Moving Average (MA) Jangka Panjang")
-        st.markdown("Garis biru (MA 50) dan merah (MA 200) jauh lebih mulus. Jika garis biru memotong garis merah ke arah atas (Golden Cross), itu adalah sinyal tren pasar Bullish.")
-        
-        ticker_ma = st.selectbox("Pilih Ticker untuk Analisis MA:", df['Ticker'].unique(), index=0)
-        df_ma = df[df['Ticker'] == ticker_ma].copy()
+        st.subheader("Analisis Moving Average (MA)")
+        ticker_ma = st.selectbox("Pilih Ticker:", df_eda['Ticker'].unique(), index=0)
+        df_ma = df_eda[df_eda['Ticker'] == ticker_ma].copy()
         df_ma['MA_50'] = df_ma['Close'].rolling(window=50).mean()
         df_ma['MA_200'] = df_ma['Close'].rolling(window=200).mean()
-        df_ma_recent = df_ma[df_ma['Date'] >= '2020-01-01']
-        
         fig_ma, ax_ma = plt.subplots(figsize=(12, 6))
-        sns.lineplot(data=df_ma_recent, x='Date', y='Close', label='Harga Asli', alpha=0.5, ax=ax_ma)
-        sns.lineplot(data=df_ma_recent, x='Date', y='MA_50', label='MA 50 Hari', color='blue', ax=ax_ma)
-        sns.lineplot(data=df_ma_recent, x='Date', y='MA_200', label='MA 200 Hari', color='red', ax=ax_ma)
-        ax_ma.set_title(f'Moving Average 50 dan 200 Hari untuk {ticker_ma}', fontweight='bold')
+        sns.lineplot(data=df_ma, x='Date', y='Close', label='Harga Asli', alpha=0.5, ax=ax_ma)
+        sns.lineplot(data=df_ma, x='Date', y='MA_50', label='MA 50 Hari', color='blue', ax=ax_ma)
+        sns.lineplot(data=df_ma, x='Date', y='MA_200', label='MA 200 Hari', color='red', ax=ax_ma)
         st.pyplot(fig_ma)
         
     with tab3:
-        st.subheader("Heatmap Korelasi Variabel Numerik Dasar")
-        kolom_numerik = df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+        st.subheader("Heatmap Korelasi Variabel Numerik")
+        kolom_numerik = df_eda[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
         fig3, ax3 = plt.subplots(figsize=(8, 6))
         sns.heatmap(kolom_numerik.corr(), annot=True, cmap='coolwarm', fmt=".2f", ax=ax3)
-        ax3.set_title("Heatmap Korelasi Variabel Saham")
         st.pyplot(fig3)
-        
         st.markdown("---")
-        st.subheader("Matriks Korelasi Pergerakan Harga (Return Correlation Heatmap)")
-        st.markdown("""
-        Matriks ini membandingkan 10 emiten. Warna merah berarti korelasinya positif (bergerak searah).
-        * **Temuan Menarik:** GOOG (Google) dan GOOGL (Alphabet) memiliki korelasi 0.99. Ini wajar karena mereka dasarnya entitas yang sama.
-        * **Temuan Industri:** MSFT dan AAPL punya korelasi tinggi. Ini menunjukkan sentimen pasar terhadap sektor teknologi secara umum itu seragam.
-        """)
-        
-        daily_return_pivot = df.pivot_table(index='Date', columns='Ticker', values='Daily_Return')
-        corr_matrix = daily_return_pivot.corr()
-        
+        st.subheader("Matriks Korelasi Pergerakan Harga (Daily Return)")
+        daily_return_pivot = df_eda.pivot_table(index='Date', columns='Ticker', values='Daily_Return')
         fig_corr, ax_corr = plt.subplots(figsize=(10, 8))
-        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5, ax=ax_corr)
-        ax_corr.set_title('Matriks Korelasi Pergerakan Harga (Daily Return)\n', fontsize=14, fontweight='bold')
-        ax_corr.set_xlabel('')
-        ax_corr.set_ylabel('')
+        sns.heatmap(daily_return_pivot.corr(), annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5, ax=ax_corr)
         st.pyplot(fig_corr)
 
     with tab4:
-        st.subheader("Distribusi Daily Return (Volatilitas Saham)")
-        st.markdown("Insight: Grafik Violin Plot akan menunjukkan bentuk 'perut'. Jika perutnya gemuk dan pendek, berarti saham itu stabil. Jika memanjang ke atas dan ke bawah (seperti NVDA dan META), berarti saham berisiko tinggi.")
-        df_return = df.dropna(subset=['Daily_Return'])
-        
+        st.subheader("Distribusi Daily Return (Volatilitas Risiko)")
         fig_vio, ax_vio = plt.subplots(figsize=(14, 7))
-        sns.violinplot(data=df_return, x='Ticker', y='Daily_Return', hue='Ticker', palette='Set3', inner='quartile', legend=False, ax=ax_vio)
-        ax_vio.set_title('Distribusi Daily Return (Volatilitas Risiko)', fontweight='bold')
+        sns.violinplot(data=df_eda.dropna(subset=['Daily_Return']), x='Ticker', y='Daily_Return', hue='Ticker', palette='Set3', inner='quartile', legend=False, ax=ax_vio)
         st.pyplot(fig_vio)
 
     with tab5:
-        st.subheader("Scatter Plot: Apakah Volume Transaksi Mempengaruhi Volatilitas Harga?")
-        st.markdown("Ada tren yang cukup terlihat: semakin ke kanan (volume transaksi membesar), titik-titiknya cenderung menyebar lebih ke atas (volatilitas membesar). Artinya, pada hari-hari kepanikan/antusiasme pasar (volume tinggi), jarak harga tertinggi dan terendah makin lebar.")
-        df_sample = df.sample(n=5000, random_state=42)
-        
+        st.subheader("Hubungan Volume Perdagangan dan Volatilitas Harga Harian")
         fig_scat, ax_scat = plt.subplots(figsize=(10, 6))
-        sns.scatterplot(data=df_sample, x='Volume', y='Volatility', hue='Ticker', alpha=0.6, palette='tab10', ax=ax_scat)
+        sns.scatterplot(data=df_eda.sample(n=min(5000, len(df_eda)), random_state=42), x='Volume', y='Volatility', hue='Ticker', alpha=0.6, palette='tab10', ax=ax_scat)
         ax_scat.set_xscale('log')
-        ax_scat.set_title('Hubungan Volume Perdagangan dan Volatilitas Harga Harian', fontweight='bold')
         st.pyplot(fig_scat)
 
     with tab6:
-        st.subheader("Cumulative Return (Siapa Pemenang Investasi Jangka Panjang?)")
-        st.markdown("Temuan Epik: Perhatikan garis (seperti LLY atau AMZN). Di akhir grafik (tahun 2024), garisnya mencapai persentase ekstrem, membuktikan bahwa uang yang ditanamkan pada emiten tersebut tumbuh berlipat-lipat ganda.")
-        
-        avg_close = df.groupby('Ticker')['Close'].mean().sort_values(ascending=False)
-        top_5_tickers = avg_close.head(5).index.tolist()
-        df_top5 = df[df['Ticker'].isin(top_5_tickers)].copy()
+        st.subheader("Cumulative Return (Pertumbuhan Investasi)")
+        avg_close = df_eda.groupby('Ticker')['Close'].mean().sort_values(ascending=False).head(5).index.tolist()
+        df_top5 = df_eda[df_eda['Ticker'].isin(avg_close)].copy()
         df_top5['Cumulative_Return'] = df_top5.groupby('Ticker')['Daily_Return'].transform(lambda x: (1 + x).cumprod() - 1)
-        
         fig_cum, ax_cum = plt.subplots(figsize=(12, 6))
         sns.lineplot(data=df_top5, x='Date', y='Cumulative_Return', hue='Ticker', ax=ax_cum)
-        ax_cum.set_title('Cumulative Return Top 5 Tech Companies', fontweight='bold')
         ax_cum.yaxis.set_major_formatter(PercentFormatter(1))
         st.pyplot(fig_cum)
 
     with tab7:
-        st.subheader("Proporsi Data dan Analisis Likuiditas")
-        st.markdown("Grafik Donut Chart di bawah memvisualisasikan proporsi likuiditas pasar berdasarkan agregat total volume transaksi saham dari 10 perusahaan teknologi raksasa. Menyoroti ketimpangan distribusi transaksi (konsentrasi pasar).")
-        
-        liquidity_dist = df.groupby('Ticker')['Volume'].sum().sort_values(ascending=False)
+        st.subheader("Proporsi Likuiditas (Total Volume) per Emiten")
+        liquidity_dist = df_eda.groupby('Ticker')['Volume'].sum().sort_values(ascending=False)
         fig_pie, ax_pie = plt.subplots(figsize=(8, 8))
         ax_pie.pie(liquidity_dist, labels=liquidity_dist.index, autopct='%1.1f%%', startangle=140, pctdistance=0.85, colors=sns.color_palette('Set2', len(liquidity_dist)))
-        
-        centre_circle = plt.Circle((0,0),0.70,fc='white')
-        fig_pie.gca().add_artist(centre_circle)
-        ax_pie.set_title("Proporsi Likuiditas (Total Volume) per Emiten", fontweight='bold')
+        fig_pie.gca().add_artist(plt.Circle((0,0),0.70,fc='white'))
         st.pyplot(fig_pie)
 
     st.markdown("---")
     
     # ==========================================
-    # 4. PREPROCESSING (Sesuai Colab untuk ML)
+    # 4. PREPROCESSING & MACHINE LEARNING
     # ==========================================
-    # Melakukan preprocessing untuk menyamakan akurasi ML
-    df_ml = df.copy()
-    
-    # Drop Missing Values akibat pct_change()
-    df_ml = df_ml.dropna()
-    
-    # Label Encoding untuk Ticker
+    df_ml = df.copy().dropna()
     le = LabelEncoder()
     df_ml['Ticker'] = le.fit_transform(df_ml['Ticker'])
-    
-    # Normalisasi (StandardScaler) pada kolom numerik 
     numerik = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
     scaler = StandardScaler()
     df_ml[numerik] = scaler.fit_transform(df_ml[numerik])
 
-    # ==========================================
-    # 5. MACHINE LEARNING
-    # ==========================================
-    st.header("🤖 Model Machine Learning (Random Forest)")
-    
-    tab_clf, tab_reg = st.tabs(["Klasifikasi (Arah Harga)", "Regresi (Prediksi Harga)"])
+    st.header("🤖 Model Machine Learning & Forecasting")
+    tab_clf, tab_reg, tab_sim, tab_fut = st.tabs(["Klasifikasi (Arah Harga)", "Regresi (H+1)", "🎮 Simulasi H+1", "🔮 Prediksi Masa Depan"])
     
     with tab_clf:
-        st.subheader("Evaluasi Performa Model Klasifikasi Kinerja Saham")
-        st.markdown("Algoritma **Random Forest Classifier** digunakan untuk memprediksi arah pergerakan kinerja saham perusahaan teknologi, yakni apakah akan menunjukkan tren positif (naik) atau negatif (turun).")
-        
-        # Persiapan Data Klasifikasi
+        st.subheader("Evaluasi Klasifikasi (Random Forest)")
         df_clf = df_ml.copy()
         df_clf['Target'] = (df_clf['Close'] > df_clf['Open']).astype(int)
-        
-        # X membuang Close, Date, dan Target
         X_clf = df_clf.drop(columns=['Close', 'Date', 'Target'])
         y_clf = df_clf['Target']
-        
         X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X_clf, y_clf, test_size=0.2, random_state=42)
-        
-        rf_clf = RandomForestClassifier(random_state=42)
-        rf_clf.fit(X_train_c, y_train_c)
-        y_pred_c = rf_clf.predict(X_test_c)
-        acc = accuracy_score(y_test_c, y_pred_c)
-        
-        st.success(f"**Tingkat Akurasi Model: {acc:.2%}** (Sesuai dengan laporan proyek ~82.86%)")
-        st.markdown("Angka ini menunjukkan bahwa dari keseluruhan data yang diuji, model mampu memprediksi arah kinerja saham dengan tingkat kebenaran tersebut.")
-        
-        st.markdown("### Analisis Faktor Penentu Kinerja Saham (Feature Importance)")
-        st.markdown("Indikator dengan batang terpanjang merupakan fitur yang paling berkontribusi dalam pengambilan keputusan algoritma. Insight ini sangat berguna secara analisis teknikal.")
-        
-        df_importance = pd.DataFrame({
-            'Fitur': X_clf.columns,
-            'Kepentingan': rf_clf.feature_importances_
-        }).sort_values(by='Kepentingan', ascending=False)
-
-        fig_imp, ax_imp = plt.subplots(figsize=(10, 6))
-        sns.barplot(data=df_importance, x='Kepentingan', y='Fitur', palette='viridis', ax=ax_imp)
-        ax_imp.set_title("Feature Importance - Klasifikasi")
-        st.pyplot(fig_imp)
+        rf_clf = RandomForestClassifier(random_state=42).fit(X_train_c, y_train_c)
+        st.success(f"**Akurasi Model: {accuracy_score(y_test_c, rf_clf.predict(X_test_c)):.2%}**")
         
     with tab_reg:
-        st.subheader("Visualisasi Prediksi Harga Saham (Time Series Forecasting)")
-        st.markdown("Grafik di bawah merupakan hasil pengujian model **Random Forest Regressor** dalam memprediksi angka pasti harga penutupan saham (*Close*) untuk keesokan harinya (H+1). Dapat dilihat bahwa model mampu mengikuti pola fluktuasi (naik-turun) dari harga aslinya dengan sangat baik dan jarak (error) yang sangat minim.")
-        
-        # Persiapan Data Regresi (Prediksi H+1)
+        st.subheader("Evaluasi Regresi (Random Forest)")
         df_reg = df_ml.copy()
         df_reg['Close_H+1'] = df_reg.groupby('Ticker')['Close'].shift(-1)
         df_reg = df_reg.dropna(subset=['Close_H+1'])
-        
         X_reg = df_reg.drop(columns=['Close_H+1', 'Date'])
         y_reg = df_reg['Close_H+1']
-        
         X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
+        rf_reg = RandomForestRegressor(random_state=42).fit(X_train_r, y_train_r)
         
-        rf_reg = RandomForestRegressor(random_state=42)
-        rf_reg.fit(X_train_r, y_train_r)
-        y_pred_r = rf_reg.predict(X_test_r)
-        
-        # Visualisasi Aktual vs Prediksi
         fig_reg, ax_reg = plt.subplots(figsize=(12, 6))
-        ax_reg.plot(y_test_r.values[:80], label='Harga Aktual (Biru)', marker='o', color='blue', alpha=0.7)
-        ax_reg.plot(y_pred_r[:80], label='Prediksi Model (Oranye)', marker='x', linestyle='--', color='orange')
+        ax_reg.plot(y_test_r.values[:80], label='Aktual (Biru)', marker='o', color='blue', alpha=0.7)
+        ax_reg.plot(rf_reg.predict(X_test_r)[:80], label='Prediksi (Oranye)', marker='x', linestyle='--', color='orange')
         ax_reg.legend()
-        ax_reg.set_title("Perbandingan Harga Aktual vs Prediksi Model (H+1) - 80 Data Uji Pertama")
         st.pyplot(fig_reg)
+
+    with tab_sim:
+        st.subheader("🎮 Simulasi: Tebak Harga Esok Hari!")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            sim_ticker = st.selectbox("Pilih Emiten:", df['Ticker'].unique(), key='sim_ticker')
+            sim_open = st.number_input("Open $:", value=150.0)
+        with col2:
+            sim_high = st.number_input("High $:", value=155.0)
+            sim_low = st.number_input("Low $:", value=148.0)
+        with col3:
+            sim_close = st.number_input("Close Hari Ini $:", value=152.0)
+            sim_vol = st.number_input("Volume:", value=50000000)
+            
+        if st.button("🚀 Prediksi Harga Besok!"):
+            input_data = pd.DataFrame({'Ticker': [sim_ticker], 'Open': [sim_open], 'High': [sim_high], 'Low': [sim_low], 'Close': [sim_close], 'Adj Close': [sim_close], 'Volume': [sim_vol], 'Daily_Return': [0.0], 'Volatility': [sim_high - sim_low]})
+            input_data['Ticker'] = le.transform(input_data['Ticker'])
+            input_data[numerik] = scaler.transform(input_data[numerik])
+            input_data = input_data[X_reg.columns]
+            
+            prediksi_scaled = rf_reg.predict(input_data)[0]
+            dummy_array = np.zeros((1, len(numerik)))
+            dummy_array[0, numerik.index('Close')] = prediksi_scaled
+            prediksi_asli = scaler.inverse_transform(dummy_array)[0, numerik.index('Close')]
+            
+            st.success("Selesai!")
+            st.metric(label=f"Prediksi Close {sim_ticker} Besok", value=f"${prediksi_asli:.2f}", delta=f"{(prediksi_asli - sim_close):.2f} dari hari ini")
+            st.balloons()
+
+    # --- TAB PREDIKSI JANGKA PANJANG DENGAN PENJELASAN DINAMIS ---
+    with tab_fut:
+        st.subheader("🔮 Prediksi Proyeksi Jangka Panjang")
+        st.markdown("Algoritma **Exponential Smoothing / Time-Series** digunakan untuk memprediksi tren masa depan jangka panjang berdasarkan pola data historis.")
+        
+        col_fut1, col_fut2 = st.columns(2)
+        with col_fut1:
+            future_ticker = st.selectbox("Pilih Emiten yang Ingin Diprediksi:", df['Ticker'].unique(), key='future_ticker')
+        with col_fut2:
+            target_year = st.slider("Pilih Tahun Target Prediksi:", min_value=2024, max_value=2035, value=2026)
+        
+        if st.button(f"🚀 Ramalkan Tren hingga {target_year}!"):
+            with st.spinner('Sedang melatih model mesin waktu...'):
+                df_ts = df[df['Ticker'] == future_ticker][['Date', 'Close']].copy()
+                df_ts = df_ts.set_index('Date')
+                df_ts_weekly = df_ts.resample('W').mean().dropna()
+                
+                model_hw = ExponentialSmoothing(df_ts_weekly['Close'], trend='add', seasonal=None, initialization_method="estimated")
+                fit_model = model_hw.fit()
+                
+                last_date = df_ts_weekly.index[-1]
+                target_date = pd.to_datetime(f'{target_year}-12-31')
+                weeks_to_predict = int((target_date - last_date).days / 7)
+                
+                if weeks_to_predict > 0:
+                    forecast = fit_model.forecast(weeks_to_predict)
+                    forecast_index = pd.date_range(start=last_date + datetime.timedelta(days=7), periods=weeks_to_predict, freq='W')
+                    
+                    fig_fut, ax_fut = plt.subplots(figsize=(12, 6))
+                    ax_fut.plot(df_ts_weekly.index, df_ts_weekly['Close'], label='Data Historis (Aktual)', color='blue')
+                    ax_fut.plot(forecast_index, forecast, label=f'Proyeksi Masa Depan (Hingga {target_year})', color='red', linestyle='--')
+                    ax_fut.fill_between(forecast_index, forecast * 0.90, forecast * 1.10, color='red', alpha=0.1, label='Rentang Variansi')
+                    
+                    ax_fut.set_title(f"Proyeksi Tren Harga Saham {future_ticker} ke {target_year}", fontweight='bold', fontsize=14)
+                    ax_fut.set_xlabel("Tahun")
+                    ax_fut.set_ylabel("Harga (USD)")
+                    ax_fut.legend()
+                    st.pyplot(fig_fut)
+                    st.success(f"Berhasil meramalkan tren hingga akhir tahun {target_year}!")
+                    
+                    # -------------------------------------------------------------
+                    # --- FITUR BARU: GENERASI PENJELASAN HASIL OTOMATIS (DINAMIS) ---
+                    # -------------------------------------------------------------
+                    st.markdown("### 📝 Analisis & Kesimpulan Hasil Proyeksi")
+                    
+                    # Mengambil nilai penting untuk narasi
+                    harga_terakhir = df_ts_weekly['Close'].iloc[-1]
+                    harga_prediksi = forecast.iloc[-1]
+                    persen_perubahan = ((harga_prediksi - harga_terakhir) / harga_terakhir) * 100
+                    
+                    # Menentukan status tren
+                    if persen_perubahan > 5:
+                        status_tren = "**Bullish (Cenderung Naik Target Jangka Panjang)** 🟢"
+                        rekomendasi = "Investor dapat mempertimbangkan opsi **Hold** atau **Buy on Weakness** karena model mendeteksi adanya kekuatan tren positif yang berkelanjutan didorong oleh pertumbuhan fundamental sektor teknologi."
+                    elif persen_perubahan < -5:
+                        status_tren = "**Bearish (Cenderung Turun / Koreksi)** 🔴"
+                        rekomendasi = "Disarankan untuk lebih **Berhati-hati (Wait and See)** atau melakukan profit-taking parsial karena model mendeteksi adanya indikasi kejenuhan pasar atau potensi koreksi tren jangka panjang."
+                    else:
+                        status_tren = "**Konsolidasi (Stagnan / Sideways)** 🟡"
+                        rekomendasi = "Pergerakan harga diproyeksikan stabil dalam rentang harga saat ini. Cocok untuk strategi **Swing Trading** jangka pendek memanfaatkan riwayat volatilitas hariannya."
+                    
+                    # Menampilkan Box Informasi Penjelasan yang dinamis
+                    st.info(f"""
+                    **Hasil Analisis Model Eksponensial untuk Emiten {future_ticker}:**
+                    * **Harga Historis Terakhir:** `${harga_terakhir:.2f}`
+                    * **Proyeksi Harga Akhir ({target_year}):** `${harga_prediksi:.2f}`
+                    * **Estimasi Persentase Perubahan:** `{persen_perubahan:.2f}%`
+                    * **Kondisi Tren Masa Depan:** {status_tren}
+                    
+                    **Business Insight & Rekomendasi:**
+                    Berdasarkan visualisasi deret waktu di atas, garis merah putus-putus menggambarkan arah proyeksi emiten **{future_ticker}** hingga tahun **{target_year}**. {rekomendasi} Kompleksitas pasar modal di sektor teknologi sangat reaktif terhadap volume likuiditas, sehingga rentang variansi (area bayangan merah transparan) harus tetap diperhatikan sebagai batas risiko toleransi volatilitas.
+                    """)
+                    
+                else:
+                    st.warning("Tahun target yang dipilih terlalu dekat atau sudah terlewati oleh data historis.")
 
 else:
     st.info("👈 Silakan upload file dataset CSV Anda di panel sebelah kiri untuk memuat dashboard analisis.")
