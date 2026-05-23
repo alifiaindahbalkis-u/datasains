@@ -221,12 +221,34 @@ if uploaded_file is not None:
         if st.button(f"🚀 Ramalkan Tren hingga {target_year}!"):
             with st.spinner('Sedang melatih model mesin waktu...'):
                 df_ts = df[df['Ticker'] == future_ticker][['Date', 'Close']].copy()
+
+                # Pastikan format datetime
+                df_ts['Date'] = pd.to_datetime(df_ts['Date'])
+
+                # Set index
                 df_ts = df_ts.set_index('Date')
-                df_ts_weekly = df_ts.resample('W').mean().dropna()
-                
-                model_hw = ExponentialSmoothing(df_ts_weekly['Close'], trend='add', seasonal=None, initialization_method="estimated")
+
+                # Resample mingguan
+                df_ts_weekly = df_ts.resample('W').mean()
+
+                # Hapus NaN
+                df_ts_weekly = df_ts_weekly.dropna()
+
+                # Validasi jumlah data
+                if len(df_ts_weekly) < 2:
+                    st.error("Data historis tidak cukup untuk melakukan forecasting Time-Series.")
+                    st.stop()
+
+                # Training model
+                model_hw = ExponentialSmoothing(
+                df_ts_weekly['Close'],
+                trend='add',
+                seasonal=None,
+                initialization_method="estimated"
+                )
+
                 fit_model = model_hw.fit()
-                
+
                 last_date = df_ts_weekly.index[-1]
                 target_date = pd.to_datetime(f'{target_year}-12-31')
                 weeks_to_predict = int((target_date - last_date).days / 7)
